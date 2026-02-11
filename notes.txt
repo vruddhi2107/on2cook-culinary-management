@@ -1,0 +1,28 @@
+Changes that needs to be made:
+
+Overview is fine. 
+Monthly Goals need to be defined
+
+breakup of the usage also needs to be added: items used for what purpose:
+R&D breakup also needs to be added with cost divided for each category
+
+Weekly activity needs to be sorted as per team members and as per tasks they are logging.
+
+there is no revenue tracking, this is how much we are spending.
+so again there is no such thing as chef revenue. We can have a chef activity analysis but I need that in Team metric where chef and other team members are categorized for the task they perform on a day to day basis and number of hours logged by each person should also be visible there.
+
+Conversion funnel makes no sense remove that.
+instead: 
+
+add a metric for inventory where we see total inventory items, the ones in stock, out of stock analysis then breakup per category (dairy ,vegetable etc), breakup per supplier (blinkit etc), Inventory usage distribution, brand breakdown,issued by breakdown for usage, 
+
+I need a metric for recipes where we have total recipes then breakdown of veg, non veg( diet type)recipes then recipe category breakdown, top 5 highest costing recipes. similary for lowest, average cost recipe, average time, most used recipes in demos, cooking mode breakdown. 
+
+Demo metric :
+where we add total virtual vs onsite demo, demo cost, demo clients (top 5), next scheduled demo, chefs taking most demos (analysis), also sales member with most demos, 
+demo planned vs demo completion rate
+Demo cost
+
+RND Metric:
+category breakdown with cost
+

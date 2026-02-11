@@ -1,0 +1,9 @@
+Lead Name:
+Outlet Name:
+Outlet City:
+Outlet State:
+Outlet Type (cafe/restaurant):
+Diet Type (veg/non-veg):
+Number of Outlets:
+Cuisine Type (indian/italian etc):
+
