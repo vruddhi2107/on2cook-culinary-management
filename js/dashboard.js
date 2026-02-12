@@ -349,63 +349,75 @@ export function EnhancedDashboard({ data, user, activityLogs, onNavigate }) {
 }, [filteredDemos, filteredTaskLogs]);
 
     const getTeamMetrics = useMemo(() => {
+    const teamStats = {};
+    let totalHours = 0;
+    
+    // NEW: Task name hours breakdown
+    const taskHoursBreakdown = {};
+    
+    filteredTaskLogs.forEach(log => {
+        const member = log.user_name || log.username || 'Unknown';
+        if (!teamStats[member]) {
+            teamStats[member] = { 
+                tasks: 0, 
+                totalHours: 0, 
+                taskBreakdown: {} 
+            };
+        }
         
-        const teamStats = {};
-        let totalHours = 0;
+        teamStats[member].tasks++;
         
-        filteredTaskLogs.forEach(log => {
-            const member = log.user_name || log.username || 'Unknown';
-            if (!teamStats[member]) {
-                teamStats[member] = { 
-                    tasks: 0, 
-                    totalHours: 0, 
-                    taskBreakdown: {} 
-                };
-            }
-            
-            teamStats[member].tasks++;
-            
-            // Calculate hours if start and end time exist
-            if (log.start_time && log.end_time) {
-                const hours = (new Date(log.end_time) - new Date(log.start_time)) / (1000 * 60 * 60);
-                if (hours > 0 && hours < 24) { // Sanity check
-                    teamStats[member].totalHours += hours;
-                    totalHours += hours;
+        // Calculate hours if start and end time exist
+        if (log.start_time && log.end_time) {
+            const hours = (new Date(log.end_time) - new Date(log.start_time)) / (1000 * 60 * 60);
+            if (hours > 0 && hours < 24) {
+                teamStats[member].totalHours += hours;
+                totalHours += hours;
+                
+                // NEW: Add to task hours breakdown
+                const taskName = log.task_name || 'Unknown Task';
+                if (!taskHoursBreakdown[taskName]) {
+                    taskHoursBreakdown[taskName] = { hours: 0, count: 0 };
                 }
+                taskHoursBreakdown[taskName].hours += hours;
+                taskHoursBreakdown[taskName].count++;
             }
-            
-            // Task breakdown
-            const task = log.task_name || 'Unknown Task';
-            if (!teamStats[member].taskBreakdown[task]) {
-                teamStats[member].taskBreakdown[task] = 0;
-            }
-            teamStats[member].taskBreakdown[task]++;
-        });
+        }
         
-        // Chef activity from demos
-        const chefActivity = {};
-        filteredDemos.forEach(demo => {
-            const chef = demo.chef_name || 'Unassigned';
-            if (!chefActivity[chef]) {
-                chefActivity[chef] = { demos: 0, cost: 0, types: { virtual: 0, onsite: 0 } };
-            }
-            chefActivity[chef].demos++;
-            chefActivity[chef].cost += Number(demo.cost) || 0;
-            if (demo.demo_type === 'virtual') {
-                chefActivity[chef].types.virtual++;
-            } else {
-                chefActivity[chef].types.onsite++;
-            }
-        });
-        
-        return {
-            totalHours, // ✅ NOW PROPERLY RETURNED
-            teamStats: Object.entries(teamStats)
-                .sort((a, b) => b[1].totalHours - a[1].totalHours),
-            chefActivity: Object.entries(chefActivity)
-                .sort((a, b) => b[1].demos - a[1].demos)
-        };
-    }, [filteredTaskLogs, filteredDemos]);
+        // Task breakdown
+        const task = log.task_name || 'Unknown Task';
+        if (!teamStats[member].taskBreakdown[task]) {
+            teamStats[member].taskBreakdown[task] = 0;
+        }
+        teamStats[member].taskBreakdown[task]++;
+    });
+    
+    // Chef activity from demos
+    const chefActivity = {};
+    filteredDemos.forEach(demo => {
+        const chef = demo.chef_name || 'Unassigned';
+        if (!chefActivity[chef]) {
+            chefActivity[chef] = { demos: 0, cost: 0, types: { virtual: 0, onsite: 0 } };
+        }
+        chefActivity[chef].demos++;
+        chefActivity[chef].cost += Number(demo.cost) || 0;
+        if (demo.demo_type === 'virtual') {
+            chefActivity[chef].types.virtual++;
+        } else {
+            chefActivity[chef].types.onsite++;
+        }
+    });
+    
+    return {
+        totalHours,
+        teamStats: Object.entries(teamStats)
+            .sort((a, b) => b[1].totalHours - a[1].totalHours),
+        chefActivity: Object.entries(chefActivity)
+            .sort((a, b) => b[1].demos - a[1].demos),
+        taskHoursBreakdown: Object.entries(taskHoursBreakdown)
+            .sort((a, b) => b[1].hours - a[1].hours)  // NEW
+    };
+}, [filteredTaskLogs, filteredDemos]);
 
     // ==================== WEEKLY ACTIVITY BY TEAM & TASKS ====================
     const getWeeklyActivityByTeam = useMemo(() => {
@@ -1656,151 +1668,237 @@ export function EnhancedDashboard({ data, user, activityLogs, onNavigate }) {
             
 
             {/* ==================== TEAM VIEW ==================== */}
-              {selectedView === 'team' && (
-                    <div className="team-view">
-                        {/* METRICS GRID */}
-                        <div className="metrics-grid">
-                            <div className="metric-card">
-                                <div className="metric-icon">👥</div>
-                                <div className="metric-content">
-                                    <div className="metric-label">Team Members</div>
-                                    <div className="metric-value">{getTeamMetrics.teamStats?.length || 0}</div>
-                                    <div className="metric-breakdown">Active</div>
-                                </div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-icon">⏱️</div>
-                                <div className="metric-content">
-                                    <div className="metric-label">Total Hours</div>
-                                    <div className="metric-value">{(getTeamMetrics.totalHours || 0).toFixed(1)}</div>
-                                    <div className="metric-breakdown">Logged</div>
-                                </div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-icon">✅</div>
-                                <div className="metric-content">
-                                    <div className="metric-label">Tasks Completed</div>
-                                    <div className="metric-value">{filteredTaskLogs?.length || 0}</div>
-                                    <div className="metric-breakdown">This period</div>
-                                </div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-icon">👨‍🍳</div>
-                                <div className="metric-content">
-                                    <div className="metric-label">Active Chefs</div>
-                                    <div className="metric-value">{getTeamMetrics.chefActivity?.length || 0}</div>
-                                    <div className="metric-breakdown">In demos</div>
-                                </div>
-                            </div>
-                        </div>
+              {/* ==================== TEAM VIEW ==================== */}
+{selectedView === 'team' && (
+    <div className="analytics-view team-view-enhanced">
+        {/* METRICS GRID */}
+        <div className="metrics-grid">
+            <div className="metric-card">
+                <div className="metric-icon">👥</div>
+                <div className="metric-content">
+                    <div className="metric-label">Team Members</div>
+                    <div className="metric-value">{getTeamMetrics.teamStats?.length || 0}</div>
+                    <div className="metric-breakdown">Active</div>
+                </div>
+            </div>
+            <div className="metric-card">
+                <div className="metric-icon">⏱️</div>
+                <div className="metric-content">
+                    <div className="metric-label">Total Hours</div>
+                    <div className="metric-value">{(getTeamMetrics.totalHours || 0).toFixed(1)}</div>
+                    <div className="metric-breakdown">Logged</div>
+                </div>
+            </div>
+            <div className="metric-card">
+                <div className="metric-icon">✅</div>
+                <div className="metric-content">
+                    <div className="metric-label">Tasks Completed</div>
+                    <div className="metric-value">{filteredTaskLogs?.length || 0}</div>
+                    <div className="metric-breakdown">This period</div>
+                </div>
+            </div>
+            <div className="metric-card">
+                <div className="metric-icon">👨‍🍳</div>
+                <div className="metric-content">
+                    <div className="metric-label">Active Chefs</div>
+                    <div className="metric-value">{getTeamMetrics.chefActivity?.length || 0}</div>
+                    <div className="metric-breakdown">In demos</div>
+                </div>
+            </div>
+        </div>
 
-                        <div className="team-charts-row">
-                            {/* PERFORMANCE LEADERBOARD */}
-                            <div className="chart-card">
-                                <div className="chart-header">
-                                    <h3>🏅 Team Performance</h3>
-                                    <div className="chart-subtitle">By hours logged</div>
-                                </div>
-                                <div className="chart-body">
-                                    {!getTeamMetrics.teamStats || getTeamMetrics.teamStats.length === 0 ? (
-                                        <div className="no-data">
-                                            <div className="no-data-icon">👥</div>
-                                            <div className="no-data-title">No team activity yet</div>
-                                            <div className="no-data-text">Team task logs will appear here</div>
+        {/* MAIN CONTENT GRID - 2 COLUMN LAYOUT */}
+        <div className="team-content-grid">
+            
+            {/* LEFT COLUMN */}
+            <div className="team-column">
+                
+                {/* PERFORMANCE LEADERBOARD - COMPACT */}
+                <div className="chart-card compact-card">
+                    <div className="chart-header">
+                        <h3>🏅 Team Leaderboard</h3>
+                        <div className="chart-subtitle">By hours logged</div>
+                    </div>
+                    <div className="chart-body compact-body">
+                        {!getTeamMetrics.teamStats || getTeamMetrics.teamStats.length === 0 ? (
+                            <div className="no-data-small">
+                                <div className="no-data-icon-small">👥</div>
+                                <div className="no-data-text-small">No activity yet</div>
+                            </div>
+                        ) : (
+                            <div className="compact-leaderboard">
+                                {getTeamMetrics.teamStats.slice(0, 8).map(([member, stats], index) => (
+                                    <div key={member} className="compact-leader-item">
+                                        <div className="leader-left">
+                                            <div className={`compact-rank ${index < 3 ? 'top-three' : ''}`}>
+                                                {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                                            </div>
+                                            <div className="leader-name">{member}</div>
                                         </div>
-                                    ) : (
-                                        <div className="leaderboard">
-                                            {getTeamMetrics.teamStats.slice(0, 10).map(([member, stats], index) => (
-                                                <div key={member} className="leaderboard-item">
-                                                    <div className={`rank-badge rank-${index + 1}`}>
-                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                                                    </div>
-                                                    <div className="performer-info">
-                                                        <div className="performer-name">{member}</div>
-                                                        <div className="performer-stats">
-                                                            {(stats.totalHours || 0).toFixed(1)}h • {stats.tasks || 0} tasks
-                                                        </div>
-                                                    </div>
-                                                    <div className="performer-score">{(stats.totalHours || 0).toFixed(1)}h</div>
+                                        <div className="leader-right">
+                                            <div className="leader-hours">{(stats.totalHours || 0).toFixed(1)}h</div>
+                                            <div className="leader-tasks">{stats.tasks || 0} tasks</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* TASK HOURS BREAKDOWN - COMPACT */}
+                <div className="chart-card compact-card">
+                    <div className="chart-header">
+                        <h3>⏱️ Hours by Task</h3>
+                        <div className="chart-subtitle">Time distribution</div>
+                    </div>
+                    <div className="chart-body compact-body">
+                        {!getTeamMetrics.taskHoursBreakdown || getTeamMetrics.taskHoursBreakdown.length === 0 ? (
+                            <div className="no-data-small">
+                                <div className="no-data-icon-small">⏱️</div>
+                                <div className="no-data-text-small">No task data</div>
+                            </div>
+                        ) : (
+                            <div className="compact-breakdown">
+                                {getTeamMetrics.taskHoursBreakdown.slice(0, 6).map(([taskName, stats]) => {
+                                    const maxHours = getTeamMetrics.taskHoursBreakdown[0]?.[1]?.hours || 1;
+                                    const percentage = Math.min(100, ((stats.hours || 0) / maxHours) * 100);
+                                    
+                                    return (
+                                        <div key={taskName} className="compact-breakdown-item">
+                                            <div className="breakdown-row">
+                                                <span className="task-name-compact">{taskName}</span>
+                                                <span className="task-hours-compact">{stats.hours.toFixed(1)}h</span>
+                                            </div>
+                                            <div className="compact-bar">
+                                                <div className="compact-bar-fill" style={{ width: `${percentage}%` }}></div>
+                                            </div>
+                                            <div className="task-count-compact">{stats.count} tasks</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* RECENT ACTIVITIES - COMPACT */}
+                <div className="chart-card compact-card">
+                    <div className="chart-header">
+                        <h3>📋 Recent Activity</h3>
+                        <div className="chart-subtitle">Latest {Math.min(8, filteredTaskLogs?.length || 0)} tasks</div>
+                    </div>
+                    <div className="chart-body compact-body scrollable-body">
+                        {!filteredTaskLogs || filteredTaskLogs.length === 0 ? (
+                            <div className="no-data-small">
+                                <div className="no-data-icon-small">📝</div>
+                                <div className="no-data-text-small">No recent logs</div>
+                            </div>
+                        ) : (
+                            <div className="compact-activity-list">
+                                {filteredTaskLogs.slice(0, 8).map((log) => {
+                                    const startDate = log.start_time ? new Date(log.start_time) : null;
+                                    const endDate = log.end_time ? new Date(log.end_time) : null;
+                                    const duration = (endDate && startDate) ? Math.floor((endDate - startDate) / 60000) : 0;
+                                    
+                                    return (
+                                        <div key={log.id} className="compact-activity-item">
+                                            <div className="activity-avatar-small">
+                                                {(log.user_name || log.username || '?').charAt(0).toUpperCase()}
+                                            </div>
+                                            <div className="activity-details-compact">
+                                                <div className="activity-top-row">
+                                                    <span className="activity-user-small">{log.user_name || log.username || 'Unknown'}</span>
+                                                    <span className="activity-duration-small">{formatDuration(duration)}</span>
                                                 </div>
-                                            ))}
+                                                <div className="activity-task-small">{log.task_name || 'Unnamed Task'}</div>
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
+                                    );
+                                })}
                             </div>
+                        )}
+                    </div>
+                </div>
+            </div>
 
-                            {/* CHEF ACTIVITY BARS */}
-                            <div className="chart-card">
-                                <div className="chart-header">
-                                    <h3>👨‍🍳 Demo Analysis</h3>
-                                    <div className="chart-subtitle">Kitchen team throughput</div>
-                                </div>
-                                <div className="chart-body">
-                                    {!getTeamMetrics.chefActivity || getTeamMetrics.chefActivity.length === 0 ? (
-                                        <div className="no-data">
-                                            <div className="no-data-icon">👨‍🍳</div>
-                                            <div className="no-data-title">No chef activity yet</div>
+            {/* RIGHT COLUMN */}
+            <div className="team-column">
+                
+                {/* CHEF DEMO ANALYSIS - COMPACT */}
+                <div className="chart-card compact-card">
+                    <div className="chart-header">
+                        <h3>👨‍🍳 Chef Performance</h3>
+                        <div className="chart-subtitle">Demo breakdown</div>
+                    </div>
+                    <div className="chart-body compact-body">
+                        {!getTeamMetrics.chefActivity || getTeamMetrics.chefActivity.length === 0 ? (
+                            <div className="no-data-small">
+                                <div className="no-data-icon-small">👨‍🍳</div>
+                                <div className="no-data-text-small">No chef activity</div>
+                            </div>
+                        ) : (
+                            <div className="compact-chef-list">
+                                {getTeamMetrics.chefActivity.slice(0, 6).map(([chef, stats], index) => {
+                                    const maxDemos = getTeamMetrics.chefActivity[0]?.[1]?.demos || 1;
+                                    const percentage = Math.min(100, ((stats.demos || 0) / maxDemos) * 100);
+                                    
+                                    return (
+                                        <div key={chef} className="compact-chef-item">
+                                            <div className="chef-header-compact">
+                                                <span className="chef-name-compact">{chef}</span>
+                                                <span className="chef-demos-compact">{stats.demos || 0} demos</span>
+                                            </div>
+                                            <div className="compact-bar">
+                                                <div className="compact-bar-fill chef-bar-fill" style={{ width: `${percentage}%` }}></div>
+                                            </div>
+                                            <div className="chef-meta-compact">
+                                                {stats.types?.virtual || 0} Virtual • {stats.types?.onsite || 0} Onsite • ₹{((stats.cost || 0) / 1000).toFixed(1)}K
+                                            </div>
                                         </div>
-                                    ) : (
-                                        <div className="chef-performance-list">
-                                            {getTeamMetrics.chefActivity.slice(0, 6).map(([chef, stats], index) => {
-                                                const maxDemos = getTeamMetrics.chefActivity[0]?.[1]?.demos || 1;
-                                                const percentage = Math.min(100, ((stats.demos || 0) / maxDemos) * 100);
-                                                return (
-                                                    <div key={chef} className="chef-item">
-                                                        <div className="chef-details">
-                                                            <div className="chef-header-row">
-                                                                <span className="chef-name">{chef}</span>
-                                                                <span className="chef-count">{stats.demos || 0} Demos</span>
-                                                            </div>
-                                                            <div className="chef-bar-container">
-                                                                <div className="chef-bar-fill" style={{ width: `${percentage}%` }} />
-                                                            </div>
-                                                            <div className="chef-footer-stats">
-                                                                {stats.types?.virtual || 0}V / {stats.types?.onsite || 0}O • ₹{((stats.cost || 0) / 1000).toFixed(1)}K cost
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
+                                    );
+                                })}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        {/* RECENT ACTIVITIES LOG */}
-                        <div className="chart-card recent-activity-section">
+                        {/* TASK DISTRIBUTION - COMPACT */}
+                        <div className="chart-card compact-card">
                             <div className="chart-header">
-                                <h3>📋 Recent Activities</h3>
-                                <div className="chart-subtitle">Live task feed</div>
+                                <h3>📊 Task Distribution</h3>
+                                <div className="chart-subtitle">Who's doing what</div>
                             </div>
-                            <div className="chart-body">
-                                {!filteredTaskLogs || filteredTaskLogs.length === 0 ? (
-                                    <div className="no-data">
-                                        <div className="no-data-icon">📝</div>
-                                        <div className="no-data-title">No recent activity</div>
+                            <div className="chart-body compact-body scrollable-body">
+                                {!getTeamMetrics.teamStats || getTeamMetrics.teamStats.length === 0 ? (
+                                    <div className="no-data-small">
+                                        <div className="no-data-icon-small">📊</div>
+                                        <div className="no-data-text-small">No data</div>
                                     </div>
                                 ) : (
-                                    <div className="recent-logs">
-                                        {filteredTaskLogs.slice(0, 10).map((log) => {
-                                            const startDate = log.start_time ? new Date(log.start_time) : null;
-                                            const endDate = log.end_time ? new Date(log.end_time) : null;
-                                            const duration = (endDate && startDate) ? Math.floor((endDate - startDate) / 60000) : 0;
+                                    <div className="compact-distribution-list">
+                                        {getTeamMetrics.teamStats.map(([member, stats]) => {
+                                            const topTasks = Object.entries(stats.taskBreakdown || {})
+                                                .sort((a, b) => b[1] - a[1])
+                                                .slice(0, 3);
+                                            
                                             return (
-                                                <div key={log.id} className="log-item">
-                                                    <div className="log-left">
-                                                        <div className="log-avatar">
-                                                            {(log.user_name || log.username || '?').charAt(0).toUpperCase()}
+                                                <div key={member} className="compact-distribution-item">
+                                                    <div className="distribution-header-compact">
+                                                        <div className="dist-avatar-small">
+                                                            {member.charAt(0).toUpperCase()}
                                                         </div>
-                                                        <div className="log-info">
-                                                            <div className="log-user">{log.user_name || log.username || 'Unknown'}</div>
-                                                            <div className="log-task">{log.task_name || 'Unnamed Task'}</div>
+                                                        <div className="dist-info-small">
+                                                            <div className="dist-name">{member}</div>
+                                                            <div className="dist-stats">{stats.tasks} tasks • {stats.totalHours.toFixed(1)}h</div>
                                                         </div>
                                                     </div>
-                                                    <div className="log-right">
-                                                        <div className="log-time">{startDate ? formatTime(log.start_time) : '-'}</div>
-                                                        <div className="log-duration">{formatDuration(duration)}</div>
+                                                    <div className="compact-task-tags">
+                                                        {topTasks.map(([task, count]) => (
+                                                            <span key={task} className="compact-task-tag">
+                                                                {task} ({count})
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             );
@@ -1810,11 +1908,13 @@ export function EnhancedDashboard({ data, user, activityLogs, onNavigate }) {
                             </div>
                         </div>
                     </div>
-                )}
+                </div>
+            </div>
+        )}
 
 
             {/* LOW STOCK ALERT */}
-            {lowStockCount > 0 && (
+            {/* {lowStockCount > 0 && (
                 <div className="alerts-section">
                     <div className="alert-card low-stock-alert">
                         <div className="alert-icon">⚠️</div>
@@ -1840,7 +1940,7 @@ export function EnhancedDashboard({ data, user, activityLogs, onNavigate }) {
                         </button>
                     </div>
                 </div>
-            )}
+            )} */}
         </div>
     );
 }

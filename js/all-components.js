@@ -147,43 +147,28 @@ function calculatePortionCost(recipe, purchases, portionSize, totalOutput) {
 
 // ==================== ACTIVITY LOGGER HOOK ====================
 function useActivityLogger(user, setActivityLogs) {
-  const logActivity = async (activityType, description, metadata = {}) => {
-    // ← NEW: Now accepts activityType, description, and metadata separately
-    // ← Changed from single notes parameter
+const logActivity = async (activityType, description) => {
     const activity = {
       user_id: user.id,
-      user_name: user.name,
-      activity_type: activityType,  // ← NEW
-      description: description,      // ← NEW
-      metadata: metadata,            // ← NEW
+      username: user.name,
+      user_email: user.email,
+      task_name: activityType,
+      description: description,
+      start_time: new Date().toISOString(),
       created_at: new Date().toISOString()
     };
 
     try {
       const { data, error } = await supabase
-        .from(TABLES.TASK_LOGS)
-        .insert([activity])
+        .from('task_logs')
+        .insert(activity)
         .select();
-
-      if (error) {
-        console.error('Activity log error:', error);
-        // Fallback to local storage
-        const localLogs = JSON.parse(localStorage.getItem('task_logs') || '[]');
-        const localActivity = { ...activity, id: Date.now().toString() };
-        localLogs.push(localActivity);
-        localStorage.setItem('task_logs', JSON.stringify(localLogs));
-        if (setActivityLogs) {
-          setActivityLogs(prev => [...prev, localActivity]);
-        }
-        return localActivity;
-      }
-
-      if (setActivityLogs && data && data[0]) {
-        setActivityLogs(prev => [...prev, data[0]]);
-      }
-      return data ? data[0] : activity;
+      
+      if (error) throw error;
+      setActivityLogs(prev => [data[0], ...prev]);
+      return data[0];
     } catch (err) {
-      console.error('Activity log failed:', err);
+      console.error('Activity log failed', err);
       return activity;
     }
   };
@@ -1534,6 +1519,48 @@ function Recipes({ data, setData, logActivity }) {
   const filteredRecipes = data.recipes.filter(recipe =>
     recipe.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+   const handleSyncCosts = async () => {
+  if (!window.confirm('Recalculate and save costs for all recipes?')) return;
+  
+  try {
+    const button = document.querySelector('.sync-costs-btn');
+    const originalText = button?.textContent;
+    if (button) {
+      button.textContent = 'Syncing...';
+      button.disabled = true;
+    }
+
+    const updates = data.recipes.map(recipe => {
+      const totalCost = calculateRecipeCost(recipe);
+      return supabase
+        .from(TABLES.RECIPES)
+        .update({ total_cost: totalCost })
+        .eq('id', recipe.id);
+    });
+
+    const results = await Promise.all(updates);
+    
+    // Refresh recipes from database
+    const { data: recipesData } = await supabase.from(TABLES.RECIPES).select();
+    setData({...data, recipes: recipesData || []});
+
+    if (button) {
+      button.textContent = originalText;
+      button.disabled = false;
+    }
+
+    alert(`Successfully synced costs for ${data.recipes.length} recipes!`);
+    
+    await logActivity(
+      'Recipe Cost Sync',
+      `Synced costs for ${data.recipes.length} recipes`,
+      { recipe_count: data.recipes.length }
+    );
+  } catch (err) {
+    console.error('Cost sync error:', err);
+    alert('Error syncing costs: ' + err.message);
+  }
+};
 
   const handleBulkUpload = async () => {
     const fileInput = document.createElement('input');
@@ -1563,6 +1590,16 @@ function Recipes({ data, setData, logActivity }) {
         );
         const { data: recipesData } = await supabase.from(TABLES.RECIPES).select();
         setData({...data, recipes: recipesData || []});
+
+        // Auto-sync costs for newly uploaded recipes
+        const costUpdates = recipesData.map(recipe => {
+        const totalCost = calculateRecipeCost(recipe);
+        return supabase
+            .from(TABLES.RECIPES)
+            .update({ total_cost: totalCost })
+            .eq('id', recipe.id);
+        });
+        await Promise.all(costUpdates);
         
         const activity = await logActivity(
           'Recipe Bulk Upload',
@@ -1644,17 +1681,20 @@ function Recipes({ data, setData, logActivity }) {
 
       <div className="toolbar">
         <div className="search-bar">
-          <span className="search-icon">🔍</span>
-          <input type="text" className="search-input" 
-            placeholder="Search recipes..." 
-            value={searchTerm} 
-            onChange={e => setSearchTerm(e.target.value)} 
-          />
-        </div>
-        <button className="btn btn-secondary" onClick={handleBulkUpload}>
-          Bulk Upload
-        </button>
-      </div>
+                <span className="search-icon">🔍</span>
+                <input type="text" className="search-input" 
+                placeholder="Search recipes..." 
+                value={searchTerm} 
+                onChange={e => setSearchTerm(e.target.value)} 
+                />
+            </div>
+            <button className="btn btn-secondary sync-costs-btn" onClick={handleSyncCosts}>
+                💰 Sync Costs
+            </button>
+            <button className="btn btn-secondary" onClick={handleBulkUpload}>
+                Bulk Upload
+            </button>
+            </div>
 
       <div className="card">
         <div className="card-header">
@@ -1684,12 +1724,14 @@ function Recipes({ data, setData, logActivity }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div className="recipe-cost">
                         ₹{recipeCost.toFixed(0)}
+                        {recipe.total_cost && Math.abs(recipe.total_cost - recipeCost) > 1 && (
+                        <span style={{fontSize: '0.75em', color: '#f56565'}}> (outdated)</span>
+                        )}
                     </div>
-
                     <div className="recipe-cost">
                         {recipe.total_output}
                     </div>
-                </div>
+                    </div>
 
 
                   {recipe.parsed_ingredients && recipe.parsed_ingredients.length > 0 ? (
@@ -2852,34 +2894,57 @@ function RecipeModal({ onClose, onSave, inventoryItems, purchases, recipe }) {
       setFormData({...formData, ingredients: parsedIngredients});
     }
   };
+ 
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (formData.ingredients.length === 0) {
-      setIngredientsError('At least one ingredient required');
+  e.preventDefault();
+  
+  if (formData.ingredients.length === 0) {
+    setIngredientsError('At least one ingredient required');
+    return;
+  }
+
+  // 1. Calculate the total cost based on current ingredients and purchase data
+  const totalCost = (formData.ingredients || []).reduce(
+    (sum, ing) => sum + calculateIngredientCost(ing, purchases), 0
+  );
+
+  // 2. Build the object to save, including the calculated total_cost
+  const recipeToSave = { 
+    ...formData, 
+    parsed_ingredients: formData.ingredients, 
+    total_cost: totalCost // This ensures it goes to Supabase
+  };
+
+  try {
+    let result;
+    if (recipe) {
+      // Update existing recipe
+      result = await supabase
+        .from(TABLES.RECIPES)
+        .update(recipeToSave)
+        .eq('id', recipe.id)
+        .select();
+    } else {
+      // Insert new recipe
+      result = await supabase
+        .from(TABLES.RECIPES)
+        .insert([recipeToSave])
+        .select();
+    }
+
+    if (result.error) {
+      alert(`Save failed: ${result.error.message}`);
       return;
     }
-    const totalCost = (formData.ingredients || []).reduce(
-      (sum, ing) => sum + calculateIngredientCost(ing, purchases), 0
-    );
-    const recipeToSave = { ...formData, parsed_ingredients: formData.ingredients, total_cost: totalCost };
 
-    try {
-      let data, error;
-      if (recipe) {
-        ({ data, error } = await supabase.from(TABLES.RECIPES).update(recipeToSave).eq('id', recipe.id).select());
-      } else {
-        ({ data, error } = await supabase.from(TABLES.RECIPES).insert([recipeToSave]).select());
-      }
-      if (error) {
-        alert(`Save failed: ${error.message}`);
-        return;
-      }
-      onSave(data[0]);
-    } catch (err) {
-      alert('Failed to save recipe. Check console for details.');
-    }
-  };
+    // 3. Update the local UI state
+    onSave(result.data[0]);
+  } catch (err) {
+    console.error('Save error:', err);
+    alert('Failed to save recipe.');
+  }
+};
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -3505,13 +3570,6 @@ function App() {
   };
 
   const logActivity = async (activityType, description) => {
-    // PASSWORD PROMPT FOR TASK LOGGING ONLY
-    const password = prompt('Enter password to verify identity:');
-    if (!password || password !== 'your_secret_password') {  // Change this password
-      alert('❌ Invalid password. Task not logged.');
-      return null;
-    }
-
     const activity = {
       user_id: user.id,
       username: user.name,
